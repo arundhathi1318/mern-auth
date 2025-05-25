@@ -1,6 +1,7 @@
-import bcrypt from 'bcryptjs'; // fix typo from 'bycrptjs'
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import userModel from '../Models/userModel.js'; // ensure this import is correct
+import userModel from '../Models/userModel.js';
+import transporter from '../config/nodemailer.js';
 
 // Register Controller
 export const registered = async (req, res) => {
@@ -30,6 +31,18 @@ export const registered = async (req, res) => {
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
+
+    // Sending welcome email
+    try {
+      await transporter.sendMail({
+        from: process.env.SENDER_EMAIL,
+        to: email,
+        subject: "Welcome to GreatStack",
+        text: `Welcome to greatstack website. Your account has been created with email id: ${email}`,
+      });
+    } catch (emailError) {
+      console.error("Email sending failed:", emailError.message);
+    }
 
     return res.json({ success: true, message: 'User registered successfully' });
   } catch (error) {
@@ -85,5 +98,46 @@ export const logOut = async (req, res) => {
     return res.json({ success: true, message: 'Logged out successfully' });
   } catch (error) {
     return res.json({ success: false, message: error.message });
+  }
+};
+
+// Send Verification OTP Controller
+export const sendVerifyOtp = async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    const user = await userModel.findById(userId);
+    
+    if (!user) {
+      return res.json({ success: false, message: "User not found" });
+    }
+
+    if (user.isAccountVerified) {
+      return res.json({ success: false, message: "Account Already verified" });
+    }
+
+    // Generate OTP (6-digit number)
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    user.verifyotp = otp;
+    user.verifyotpexpireat = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+    await user.save();
+
+    // Send OTP email
+    try {
+      await transporter.sendMail({
+        from: process.env.SENDER_EMAIL,
+        to: user.email, // Fixed: use user.email instead of undefined 'email'
+        subject: "Account Verification OTP",
+        text: `YOUR OTP IS: ${otp}`, // Fixed typo: "YOR" -> "YOUR"
+      });
+    } catch (emailError) {
+      console.error("Email sending failed:", emailError.message);
+      return res.json({ success: false, message: "Failed to send OTP email" });
+    }
+
+    res.json({ success: true, message: 'Verification OTP sent on email' });
+
+  } catch (error) {
+    res.json({ success: false, message: error.message });
   }
 };
